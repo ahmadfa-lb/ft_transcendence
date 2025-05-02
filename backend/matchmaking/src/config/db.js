@@ -133,7 +133,7 @@ class DatabaseConnection {
     const matchesTable = `
       CREATE TABLE IF NOT EXISTS matches (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        match_type TEXT NOT NULL CHECK(match_type IN ('1v1', 'friendly')),
+        match_type TEXT NOT NULL CHECK(match_type IN ('1v1', 'friendly', 'tournament')),
         status TEXT NOT NULL CHECK(status IN ('pending', 'completed')),
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         started_at DATETIME,
@@ -166,6 +166,45 @@ class DatabaseConnection {
         joined_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
     `;
+
+    const tournamentsTable = `
+      CREATE TABLE IF NOT EXISTS tournaments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('registering', 'in_progress', 'completed')),
+        player_count INTEGER NOT NULL CHECK(player_count IN (4, 8)),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        started_at DATETIME,
+        completed_at DATETIME
+      );
+    `;
+
+    const tournamentPlayersTable = `
+      CREATE TABLE IF NOT EXISTS tournament_players (
+        tournament_id INTEGER NOT NULL,
+        player_id INTEGER NOT NULL,
+        placement INTEGER DEFAULT NULL,
+        PRIMARY KEY (tournament_id, player_id),
+        FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE CASCADE,
+        FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE
+      );
+    `;
+
+    this.db.run(tournamentsTable, (err) => {
+      if (err) {
+        console.error('Error creating tournaments table', err);
+      } else {
+        console.log('Tournaments table created or already exists');
+      }
+    });
+
+    this.db.run(tournamentPlayersTable, (err) => {
+      if (err) {
+        console.error('Error creating tournament_players table', err);
+      } else {
+        console.log('Tournament players table created or already exists');
+      }
+    });
 
     this.db.run(matchesTable, (err) => {
       if (err) {

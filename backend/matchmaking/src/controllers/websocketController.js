@@ -37,6 +37,7 @@ export function setupWebSocketHandlers(wsAdapter, fastify) {
       // Register the new client with user data
       wsAdapter.registerClient(clientId, socket, { userId });
       
+      
       fastify.log.info(`New WebSocket connection from user: ${clientId}`);
       
       // Set up message handler for this socket
@@ -109,8 +110,9 @@ export function setupWebSocketHandlers(wsAdapter, fastify) {
     }
   });
   
-  // Register message handlers
+  // Register event handlers
   registerMessageHandlers(wsAdapter);
+  registerTournamentMessageHandlers(wsAdapter, fastify.tournamentService);
 }
 
 /**
@@ -281,6 +283,190 @@ function registerMessageHandlers(wsAdapter) {
         wsAdapter.sendToClient(player1Id, 'game_result', result);
         wsAdapter.sendToClient(player2Id, 'game_result', result);
       }
+    }
+  });
+}
+
+function registerTournamentMessageHandlers(wsAdapter, tournamentService) {
+  wsAdapter.registerMessageHandler('tournament_list', async (clientId, payload) => {
+    try {
+      const query = `SELECT t.*, COUNT(tp.player_id) as registered_players 
+                      FROM tournaments t 
+                      LEFT JOIN tournament_players tp ON t.id = tp.tournament_id
+                      WHERE t.status = 'registering'
+                      GROUP BY t.id 
+                      ORDER BY t.created_at DESC
+                      LIMIT 10`;
+
+      const tournaments = await db.all(query);
+      
+      wsAdapter.sendToClient(clientId, 'tournament_list', { tournaments });
+    } catch (error) {
+      console.error('Error listing tournaments:', error);
+      wsAdapter.sendToClient(clientId, 'error', { 
+        message: 'Error fetching tournament list'
+      });
+    }
+  });
+
+  wsAdapter.registerMessageHandler('tournament_create', async (clientId, payload) => {
+    try {
+      const { name, playerCount = 4 } = payload;
+      
+      const tournament = await tournamentService.createTournament(name, playerCount);
+      
+      await tournamentService.registerPlayer(tournament.id, clientId);
+      
+      wsAdapter.sendToClient(clientId, 'tournament_created', { tournament });
+    } catch (error) {
+      console.error('Error creating tournament:', error);
+      wsAdapter.sendToClient(clientId, 'error', { 
+        message: 'Error creating tournament: ' + error.message
+      });
+    }
+  });
+
+  wsAdapter.registerMessageHandler('tournament_join', async (clientId, payload) => {
+    try {
+      const { tournamentId } = payload;
+      
+      const result = await tournamentService.registerPlayer(tournamentId, clientId);
+      
+      const tournament = await tournamentService.getTournamentDetails(tournamentId);
+      
+      tournament.players.forEach(player => {
+        wsAdapter.sendToClient(player.player_id, 'tournament_updated', { tournament });
+      });
+    } catch (error) {
+      console.error('Error joining tournament:', error);
+      wsAdapter.sendToClient(clientId, 'error', { 
+        message: 'Error joining tournament: ' + error.message
+      });
+    }
+  });
+
+  wsAdapter.registerMessageHandler('tournament_details', async (clientId, payload) => {
+    try {
+      const { tournamentId } = payload;
+      
+      const details = await tournamentService.getTournamentDetails(tournamentId);
+      
+      wsAdapter.sendToClient(clientId, 'tournament_details', details);
+    } catch (error) {
+      console.error('Error getting tournament details:', error);
+      wsAdapter.sendToClient(clientId, 'error', { 
+        message: 'Error getting tournament details: ' + error.message
+      });
+    }
+  });
+
+  wsAdapter.registerMessageHandler('tournament_match_ready', async (clientId, payload) => {
+    try {
+      const { matchId } = payload;
+      
+      const match = await db.get(
+        `SELECT * FROM matches WHERE id = ? AND match_type = 'tournament'`,
+        [matchId]
+      );
+      
+      if (!match) {
+        throw new Error('Tournament match not found');
+      }
+      
+      const players = await db.all(
+        `SELECT mp.player_id FROM match_players mp WHERE mp.match_id = ?`,
+        [matchId]
+      );
+      
+      if (players.length !== 2) {
+        throw new Error('Invalid match player count');
+      }
+      
+      players.forEach(player => {
+        wsAdapter.sendToClient(player.player_id, 'tournament_match_starting', {
+          matchId,
+          opponentId: player.player_id === clientId 
+            ? players.find(p => p.player_id !== clientId)?.player_id 
+            : clientId
+        });
+      });
+      
+      // Start match in 3 seconds
+      setTimeout(() => {
+        players.forEach(player => {
+          wsAdapter.sendToClient(player.player_id, 'tournament_match_start', { 
+            matchId,
+            isPlayer1: player.player_id === players[0].player_id
+          });
+        });
+      }, 3000);
+    } catch (error) {
+      console.error('Error starting tournament match:', error);
+      wsAdapter.sendToClient(clientId, 'error', { 
+        message: 'Error starting tournament match: ' + error.message
+      });
+    }
+  });
+
+  // Submit tournament match result
+  wsAdapter.registerMessageHandler('tournament_match_complete', async (clientId, payload) => {
+    try {
+      const { matchId, winnerId, scores } = payload;
+      
+      // Validate that the client is in this match
+      const playerInMatch = await db.get(
+        `SELECT 1 FROM match_players WHERE match_id = ? AND player_id = ?`,
+        [matchId, clientId]
+      );
+      
+      if (!playerInMatch) {
+        throw new Error('You are not a participant in this match');
+      }
+      
+      // Update match result
+      const result = await tournamentService.updateTournamentMatchResult(matchId, winnerId);
+      
+      // Get tournament ID for this match
+      const tournamentPlayer = await db.get(
+        `SELECT tp.tournament_id 
+         FROM tournament_players tp 
+         JOIN match_players mp ON tp.player_id = mp.player_id 
+         WHERE mp.match_id = ? 
+         LIMIT 1`,
+        [matchId]
+      );
+      
+      if (!tournamentPlayer) {
+        throw new Error('Tournament not found for this match');
+      }
+      
+      // Get updated tournament details
+      const tournament = await tournamentService.getTournamentDetails(tournamentPlayer.tournament_id);
+      
+      // Broadcast update to all tournament players
+      tournament.players.forEach(player => {
+        wsAdapter.sendToClient(player.player_id, 'tournament_updated', { tournament });
+      });
+      
+      // If tournament status is now "completed", notify all players about the winner
+      if (tournament.tournament.status === 'completed') {
+        const champion = tournament.players.find(p => p.placement === 1);
+        
+        tournament.players.forEach(player => {
+          wsAdapter.sendToClient(player.player_id, 'tournament_completed', { 
+            tournamentId: tournament.tournament.id,
+            champion: {
+              id: champion.player_id,
+              nickname: champion.nickname
+            }
+          });
+        });
+      }
+    } catch (error) {
+      console.error('Error completing tournament match:', error);
+      wsAdapter.sendToClient(clientId, 'error', { 
+        message: 'Error completing tournament match: ' + error.message
+      });
     }
   });
 }

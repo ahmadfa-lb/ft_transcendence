@@ -60,6 +60,7 @@ import { createWebSocketAdapter } from './src/services/websocketAdapter.js';
 import { setupWebSocketHandlers } from './src/controllers/websocketController.js';
 import matchmakingRoutes from './src/routes/matches.js'; // Updated to match your actual file name
 import matchmakingService from './src/services/matchmaking.js';
+import tournamentService from './src/services/tournament.js';
 import database from './src/config/db.js';
 
 // Create Fastify instance
@@ -75,6 +76,7 @@ fastify.register(cors, {
 
 // Register the matchmaking service as a decorator
 fastify.decorate('matchmakingService', matchmakingService);
+fastify.decorate('tournamentService', tournamentService);
 
 // Initialize WebSocket adapter before server starts
 const wsAdapter = createWebSocketAdapter(fastify.server);

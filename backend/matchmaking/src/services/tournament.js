@@ -106,9 +106,9 @@ class TournamentService {
 
       // Get all players
       const players = await db.all(
-        `SELECT tp.user_id, u.elo 
+        `SELECT tp.player_id, u.elo_score 
          FROM tournament_players tp
-         JOIN users u ON tp.user_id = u.id
+         JOIN players u ON tp.player_id = u.id
          WHERE tp.tournament_id = ?`,
         [tournamentId]
       );
@@ -153,11 +153,21 @@ class TournamentService {
     }
   }
 
+  // Helper to randomize player order for fair matchmaking
+  shufflePlayers(players) {
+    const shuffled = [...players];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  }
+
   // Create a match between two tournament players
   async createTournamentMatch(tournamentId, player1Id, player2Id) {
     try {
-      const player1 = await db.get(`SELECT id, elo FROM users WHERE id = ?`, [player1Id]);
-      const player2 = await db.get(`SELECT id, elo FROM users WHERE id = ?`, [player2Id]);
+      const player1 = await db.get(`SELECT id, elo_score FROM players WHERE id = ?`, [player1Id]);
+      const player2 = await db.get(`SELECT id, elo_score FROM players WHERE id = ?`, [player2Id]);
 
       // Create match record
       const matchResult = await db.run(
@@ -168,19 +178,19 @@ class TournamentService {
 
       // Add players to match with their current ELO
       await db.run(
-        `INSERT INTO match_players (match_id, user_id, elo_before) VALUES (?, ?, ?)`,
-        [matchId, player1.id, player1.elo]
+        `INSERT INTO match_players (match_id, player_id, elo_before) VALUES (?, ?, ?)`,
+        [matchId, player1.id, player1.elo_score]
       );
       await db.run(
-        `INSERT INTO match_players (match_id, user_id, elo_before) VALUES (?, ?, ?)`,
-        [matchId, player2.id, player2.elo]
+        `INSERT INTO match_players (match_id, player_id, elo_before) VALUES (?, ?, ?)`,
+        [matchId, player2.id, player2.elo_score]
       );
 
       return {
         matchId,
         tournamentId,
-        player1: { id: player1.id, elo: player1.elo },
-        player2: { id: player2.id, elo: player2.elo }
+        player1: { id: player1.id, elo: player1.elo_score },
+        player2: { id: player2.id, elo: player2.elo_score }
       };
     } catch (error) {
       console.error('Error creating tournament match:', error);
@@ -199,14 +209,14 @@ class TournamentService {
 
       // Get players in this match
       const players = await db.all(
-        `SELECT mp.*, u.elo FROM match_players mp 
-         JOIN users u ON mp.user_id = u.id
+        `SELECT mp.*, u.elo_score FROM match_players mp 
+         JOIN players u ON mp.player_id = u.id
          WHERE mp.match_id = ?`,
         [matchId]
       );
 
-      const winner = players.find(p => p.user_id === winnerId);
-      const loser = players.find(p => p.user_id !== winnerId);
+      const winner = players.find(p => p.player_id === winnerId);
+      const loser = players.find(p => p.player_id !== winnerId);
 
       if (!winner) {
         throw new Error('Winner not found in this match');
@@ -215,20 +225,20 @@ class TournamentService {
       // Calculate new ELO ratings (smaller K-factor for tournaments)
       const tournamentEloService = new EloService({ kFactor: 16 });
       const winnerNewElo = tournamentEloService.calculateNewRatings(
-        winner.elo, loser.elo, true
+        winner.elo_score, loser.elo_score, true
       );
       const loserNewElo = tournamentEloService.calculateNewRatings(
-        loser.elo, winner.elo, false
+        loser.elo_score, winner.elo_score, false
       );
 
       // Update match_players with scores and new ELO
       await db.run(
-        `UPDATE match_players SET score = 1, elo_after = ? WHERE match_id = ? AND user_id = ?`,
-        [winnerNewElo, matchId, winner.user_id]
+        `UPDATE match_players SET score = 1, elo_after = ? WHERE match_id = ? AND player_id = ?`,
+        [winnerNewElo, matchId, winner.player_id]
       );
       await db.run(
-        `UPDATE match_players SET score = 0, elo_after = ? WHERE match_id = ? AND user_id = ?`,
-        [loserNewElo, matchId, loser.user_id]
+        `UPDATE match_players SET score = 0, elo_after = ? WHERE match_id = ? AND player_id = ?`,
+        [loserNewElo, matchId, loser.player_id]
       );
 
       // Update match status
@@ -242,7 +252,7 @@ class TournamentService {
         `SELECT tournament_id FROM tournament_players 
          WHERE user_id = ? OR user_id = ? 
          LIMIT 1`,
-        [winner.user_id, loser.user_id]
+        [winner.player_id, loser.player_id]
       );
 
       if (!tournamentPlayers) {
@@ -255,14 +265,14 @@ class TournamentService {
       await this.progressTournament(tournamentId);
 
       // Update user stats in auth service
-      await this.updateUserStats(winner.user_id, winnerNewElo, true);
-      await this.updateUserStats(loser.user_id, loserNewElo, false);
+      await this.updateUserStats(winner.player_id, winnerNewElo, true);
+      await this.updateUserStats(loser.player_id, loserNewElo, false);
 
       return {
         matchId,
         tournamentId,
-        winner: { id: winner.user_id, newElo: winnerNewElo },
-        loser: { id: loser.user_id, newElo: loserNewElo }
+        winner: { id: winner.player_id, newElo: winnerNewElo },
+        loser: { id: loser.player_id, newElo: loserNewElo }
       };
     } catch (error) {
       console.error('Error updating tournament match:', error);
@@ -284,10 +294,10 @@ class TournamentService {
 
       // Get all completed matches for this tournament
       const completedMatches = await db.all(
-        `SELECT m.id, m.status, mp.user_id, mp.score
+        `SELECT m.id, m.status, mp.player_id, mp.score
          FROM matches m
          JOIN match_players mp ON m.id = mp.match_id
-         JOIN tournament_players tp ON mp.user_id = tp.user_id
+         JOIN tournament_players tp ON mp.player_id = tp.user_id
          WHERE tp.tournament_id = ? AND m.match_type = 'tournament' AND m.status = 'completed'`,
         [tournamentId]
       );
@@ -305,7 +315,7 @@ class TournamentService {
       const winners = Object.values(matchResults)
         .map(players => {
           // Find player with score 1 (winner)
-          return players.find(p => p.score === 1)?.user_id;
+          return players.find(p => p.score === 1)?.player_id;
         })
         .filter(Boolean);
 
@@ -391,19 +401,19 @@ class TournamentService {
 
       // Get all players
       const players = await db.all(
-        `SELECT tp.*, u.nickname, u.elo
+        `SELECT tp.*, u.nickname, u.elo_score
          FROM tournament_players tp
-         JOIN users u ON tp.user_id = u.id
+         JOIN players u ON tp.user_id = u.id
          WHERE tp.tournament_id = ?`,
         [tournamentId]
       );
 
       // Get all matches
       const matches = await db.all(
-        `SELECT m.*, mp.user_id, mp.score, mp.elo_before, mp.elo_after
+        `SELECT m.*, mp.player_id, mp.score, mp.elo_before, mp.elo_after
          FROM matches m
          JOIN match_players mp ON m.id = mp.match_id
-         JOIN tournament_players tp ON mp.user_id = tp.user_id
+         JOIN tournament_players tp ON mp.player_id = tp.user_id
          WHERE tp.tournament_id = ? AND m.match_type = 'tournament'
          ORDER BY m.created_at`,
         [tournamentId]
@@ -422,7 +432,7 @@ class TournamentService {
           };
         }
         groupedMatches[match.id].players.push({
-          user_id: match.user_id,
+          player_id: match.player_id,
           score: match.score,
           elo_before: match.elo_before,
           elo_after: match.elo_after
@@ -440,16 +450,6 @@ class TournamentService {
       console.error('Error getting tournament details:', error);
       throw error;
     }
-  }
-
-  // Helper to randomize player order for fair matchmaking
-  shufflePlayers(players) {
-    const shuffled = [...players];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    return shuffled;
   }
 
   // Update user stats in the auth service
