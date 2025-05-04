@@ -1,17 +1,5 @@
 import { createComponent } from "../../utils/StateManager.js";
-import moabbas from '../../assets/moabbas.jpg';
-import afarachi from '../../assets/afarachi.jpg';
-import jfatfat from '../../assets/jfatfat.jpg';
-import odib from '../../assets/omar.webp';
 import { t } from "../../languages/LanguageController.js";
-
-// Sample user data for search results [For testing purposes]
-const sampleUsers = [
-    { username: "Ahmad Farachi - afarachi", status: "online", avatar: afarachi, rank: "Gold" },
-    { username: "Jihad Fatfat - jfatfat", status: "offline", avatar: jfatfat, rank: "Silver" },
-    { username: "Mohamad Abbass - moabbas", status: "in-game", avatar: moabbas, rank: "Bronze" },
-    { username: "Omar Dib - odib", status: "online", avatar: odib, rank: "4" }
-];
 
 interface Player {
   id: string;
