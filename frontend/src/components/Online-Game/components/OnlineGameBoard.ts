@@ -259,8 +259,8 @@ export class OnlineGameBoard extends GameBoard {
 
 		this.client.on('ball_update', (data: any) => {
 			if (!this.isPlayer1) {
-				console.log("NICE!!!");
-				console.log(data);
+				// console.log("NICE!!!");
+				// console.log(data);
 
 				this.state.ballX = data.position.x;
 				this.state.ballY = data.position.y;
@@ -317,21 +317,24 @@ export class OnlineGameBoard extends GameBoard {
 		this.clampPaddlePosition('player2Y');
 
 		this.updateScoreDisplay();
-
-		if (Math.max(this.state.scores.player1, this.state.scores.player2) >= 10) {
+		// console.log(this.gameScore.player1);
+		// console.log(this.gameScore.player2);
+		if (Math.max(this.gameScore.player1, this.gameScore.player2) >= 10) {
 			this.state.gameEnded = true;
-			const winnerId = this.state.scores.player1 > this.state.scores.player2
+			const winnerId = this.gameScore.player1 > this.gameScore.player2
 				? (this.isPlayer1 ? this.playerId : this.opponentId)
 				: (this.isPlayer1 ? this.opponentId : this.playerId);
 
-			this.client.send('match_complete', {
-				matchId: this.matchId,
-				winnerId: winnerId,
-				goals: {
-					[this.playerId]: this.isPlayer1 ? this.state.scores.player1 : this.state.scores.player2,
-					[this.opponentId]: this.isPlayer1 ? this.state.scores.player2 : this.state.scores.player1
-				}
-			});
+			// Send game_end message with correct property names
+			if (this.isPlayer1) {
+				this.client.send('game_end', {
+					matchId: this.matchId,
+					winner: winnerId, // Changed from winnerId to winner to match backend expectations
+					player1Goals: this.gameScore.player1, // Changed from nested goals object to match backend
+					player2Goals: this.gameScore.player2  // Changed to match backend expectations
+				});
+			}
+
 		}
 	}
 

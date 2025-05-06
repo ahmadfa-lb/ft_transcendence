@@ -366,6 +366,7 @@ export default {
       if (openChatWithUserData) {
         try {
           const userData = JSON.parse(openChatWithUserData);
+          console.log(userData);
 
           // Make sure this is a recent request (within the last minute)
           if (Date.now() - userData.timestamp < 60000) {
@@ -379,6 +380,7 @@ export default {
               const formattedUserData = {
                 nickname: userData.username || userData.nickname,
                 id: userData.userId,
+                avatar_url: userData.avatar_url,
                 full_name: userData.fullname
               };
               (chatComponent as any).setActiveUser(formattedUserData);

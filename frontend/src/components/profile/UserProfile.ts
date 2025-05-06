@@ -270,12 +270,12 @@ export const Profile = createComponent((props: ProfileProps) => {
             console.error("Missing user information for messaging");
             return;
           }
-
           // Store the user information in localStorage temporarily, so the chat page can access it
           localStorage.setItem('openChatWithUser', JSON.stringify({
             username: userData.nickname,
             userId: userData.id,
             fullname: userData.full_name || userData.nickname,
+            avatar_url: userData.avatar_url,
             timestamp: Date.now() // Add timestamp to ensure this is a new request
           }));
 

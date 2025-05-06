@@ -1,39 +1,40 @@
+// This is a simplified example - you may need to adjust based on your actual implementation
 class EloService {
-  constructor() {
-    this.kFactor = 32;      // Standard K-factor
-    this.baseRating = 1000; // Starting ELO
+  constructor(kFactor = 32) {
+    this.kFactor = kFactor;
   }
 
   /**
-   * Calculate new ratings for both players.
-   * @param {number} playerRating    - Current player rating
-   * @param {number} opponentRating  - Current opponent rating
-   * @param {number} result          - 1 = win, 0.5 = draw, 0 = loss
-   * @returns {number}               - New player rating
+   * Calculate expected score (probability of winning)
+   * @param {number} playerRating - Player's current rating
+   * @param {number} opponentRating - Opponent's current rating
+   * @returns {number} - Expected score between 0 and 1
    */
-  calculateNewRatings(playerRating, opponentRating, result) {
-    // 1. Expected score based on current ratings
-    const expectedScore = this.getExpectedScore(playerRating, opponentRating);
-
-    // 2. Actual score: result can be 1, 0.5, or 0
-    const actualScore = result;
-
-    // 3. New rating calculation
-    const newRating = Math.round(
-      playerRating + this.kFactor * (actualScore - expectedScore)
-    );
-
-    return newRating;
-  }
-
-  // Calculates the expected probability of winning
-  getExpectedScore(playerRating, opponentRating) {
+  calculateExpectedScore(playerRating, opponentRating) {
     return 1 / (1 + Math.pow(10, (opponentRating - playerRating) / 400));
   }
 
-  // Initial rating for new users
-  getInitialRating() {
-    return this.baseRating;
+  /**
+   * Calculate new rating after a match
+   * @param {number} currentRating - Current rating
+   * @param {number} expectedScore - Expected score
+   * @param {number} actualScore - Actual score (1 for win, 0.5 for draw, 0 for loss)
+   * @returns {number} - New rating
+   */
+  calculateNewRating(currentRating, expectedScore, actualScore) {
+    return Math.round(currentRating + this.kFactor * (actualScore - expectedScore));
+  }
+
+  /**
+   * Calculate new ratings for a player
+   * @param {number} playerRating - Player's current rating
+   * @param {number} opponentRating - Opponent's current rating
+   * @param {number} result - Match result (1 for win, 0.5 for draw, 0 for loss)
+   * @returns {number} - New player rating
+   */
+  calculateNewRatings(playerRating, opponentRating, result) {
+    const expectedScore = this.calculateExpectedScore(playerRating, opponentRating);
+    return this.calculateNewRating(playerRating, expectedScore, result);
   }
 }
 
