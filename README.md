@@ -12,7 +12,7 @@
 - **Authentication:** JWT, 2FA, Google OAuth
 - **Real-time Communication:** WebSocket
 - **Deployment:** Docker, NGINX
-- **Security:** HTTPS, input validation, XSS/SQLi protection, password hashing
+- **Security:** HTTPS, input validation, XSS/SQL injection protection, password hashing
 
 ---
 
